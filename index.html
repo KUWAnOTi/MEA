@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0c1220">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>MEA電解タイマー</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=JetBrains+Mono:wght@500;700&display=swap">
+<style>
+/* Layout: one narrow column sized for a phone held at the bench; status panel on top, operation cards below, history on a second tab. */
+:root{
+  --bg:#eef1f6; --surface:#ffffff; --surface2:#e3e8f1; --ink:#152033; --sub:#5a6880;
+  --line:#d3dae6; --accent:#1f5fd6; --accent-ink:#ffffff; --due:#d4461a; --due-bg:#fde9e1;
+  --ok:#1d8a4c; --ok-bg:#e1f3e8; --input:#f7f9fc;
+  --f-body:"BIZ UDPGothic","Hiragino Sans","Yu Gothic UI","Meiryo",system-ui,sans-serif;
+  --f-num:"JetBrains Mono",ui-monospace,"SFMono-Regular",Consolas,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){ :root{
+  --bg:#0c1220; --surface:#151e31; --surface2:#1c2840; --ink:#e7ecf6; --sub:#97a3bf;
+  --line:#28344f; --accent:#5c93ff; --accent-ink:#0c1220; --due:#ff7a57; --due-bg:#3a1f22;
+  --ok:#3fcf80; --ok-bg:#15301f; --input:#0f1729; color-scheme:dark; } }
+
+*{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+[hidden]{ display:none!important; }
+html,body{ background:var(--bg); margin:0; }
+body{ color:var(--ink); font-family:var(--f-body); font-size:15px; line-height:1.5;
+  padding-left:max(16px, env(safe-area-inset-left, 0px)); padding-right:max(16px, env(safe-area-inset-right, 0px));
+  padding-top:calc(12px + env(safe-area-inset-top, 0px)); padding-bottom:calc(40px + env(safe-area-inset-bottom, 0px)); }
+.wrap{ max-width:560px; margin:0 auto; display:flex; flex-direction:column; gap:10px; }
+.num{ font-family:var(--f-num); font-variant-numeric:tabular-nums; }
+.sub{ color:var(--sub); font-size:13px; }
+header{ display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap; }
+h1{ font-size:19px; margin:0; letter-spacing:.02em; }
+.pill{ font-size:12px; border-radius:999px; padding:3px 10px; background:var(--surface2); color:var(--sub); white-space:nowrap; }
+.pill.ok{ background:var(--ok-bg); color:var(--ok); }
+.pill.warn{ background:var(--due-bg); color:var(--due); }
+
+.tabs{ display:grid; grid-template-columns:1fr 1fr 1fr; background:var(--surface2); border-radius:12px; padding:3px; gap:3px; }
+.tabs button{ background:transparent; color:var(--sub); padding:9px 4px; font-size:15px; }
+.tabs button[aria-selected="true"]{ background:var(--surface); color:var(--ink); box-shadow:0 1px 2px rgba(0,0,0,.08); }
+
+button{ font:inherit; font-weight:700; font-size:16px; padding:12px 14px; border:none; border-radius:12px;
+  background:var(--accent); color:var(--accent-ink); cursor:pointer; }
+button:active{ filter:brightness(.88); }
+button:focus-visible,input:focus-visible{ outline:3px solid var(--accent); outline-offset:2px; }
+button.ghost{ background:var(--surface2); color:var(--ink); }
+button.small{ font-size:13px; padding:8px 10px; border-radius:10px; }
+button.danger{ background:var(--due-bg); color:var(--due); }
+button.big{ width:100%; font-size:19px; padding:16px; }
+button.cc{ background:var(--ok); color:#fff; }
+button:disabled{ opacity:.5; }
+
+label.field{ display:flex; flex-direction:column; gap:3px; font-size:12px; color:var(--sub); min-width:0; }
+input[type=number],input[type=text],input[type=url],input[type=password]{ font:inherit; font-size:16px; padding:9px 10px; border-radius:10px;
+  border:1px solid var(--line); background:var(--input); color:var(--ink); width:100%; min-width:0; }
+.setup{ display:grid; grid-template-columns:1fr 120px; gap:8px; }
+
+#statusbar{ background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:14px; text-align:center; }
+#bigclock{ font-size:42px; font-weight:700; line-height:1.15; }
+#cc{ font-size:15px; color:var(--sub); min-height:1.4em; }
+#nextline{ font-size:16px; margin-top:6px; min-height:24px; }
+#nextline b.dueText{ color:var(--due); }
+
+#cards{ display:flex; flex-direction:column; gap:8px; }
+.card{ background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:12px 14px; }
+.card.due{ border-color:var(--due); background:var(--due-bg); animation:flash 1s infinite; }
+.card.done{ opacity:.6; }
+.card.locked{ opacity:.45; }
+@keyframes flash{ 50%{ box-shadow:0 0 0 4px var(--due); } }
+@media (prefers-reduced-motion: reduce){ .card.due{ animation:none; box-shadow:0 0 0 3px var(--due); } }
+.chead{ display:flex; justify-content:space-between; align-items:baseline; gap:8px; }
+.cname{ font-size:17px; font-weight:700; }
+.ctimer{ font-size:22px; font-weight:700; }
+.card.done .ctimer{ color:var(--ok); }
+.cmeta{ font-size:13px; color:var(--sub); }
+.actions{ display:flex; gap:8px; align-items:center; margin-top:10px; flex-wrap:wrap; }
+.actions input{ width:110px; flex:0 0 auto; }
+.unit{ color:var(--sub); font-size:14px; }
+
+.row{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+.row > input{ flex:1; }
+.footer{ display:flex; gap:8px; flex-wrap:wrap; }
+#result{ background:var(--ok-bg); border-radius:12px; padding:12px; font-size:14px; }
+code{ font-family:var(--f-num); font-size:12px; background:var(--input); border:1px solid var(--line);
+  padding:2px 6px; border-radius:6px; word-break:break-all; }
+
+details,.panel{ background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:10px 14px; }
+.panel{ display:flex; flex-direction:column; gap:10px; padding:14px; }
+.panel h2{ font-size:16px; margin:0; }
+summary{ cursor:pointer; color:var(--sub); font-size:14px; }
+.tablewrap{ overflow-x:auto; }
+table{ width:100%; border-collapse:collapse; font-size:13px; margin-top:6px; }
+th,td{ border-bottom:1px solid var(--line); padding:6px 4px; text-align:left; white-space:nowrap; }
+th{ color:var(--sub); font-weight:400; }
+
+#histList{ display:flex; flex-direction:column; gap:8px; }
+.run{ background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:12px 14px; display:flex; flex-direction:column; gap:6px; }
+.run .rhead{ display:flex; justify-content:space-between; gap:8px; align-items:baseline; }
+.run .rname{ font-weight:700; font-size:16px; word-break:break-all; min-width:0; }
+.run dl{ display:grid; grid-template-columns:auto 1fr; gap:2px 10px; margin:0; font-size:13px; }
+.run dt{ color:var(--sub); }
+.run dd{ margin:0; min-width:0; word-break:break-all; }
+.empty{ background:var(--surface); border:1px dashed var(--line); border-radius:14px; padding:18px; color:var(--sub); font-size:14px; }
+.help{ font-size:13px; color:var(--sub); }
+.help ol{ margin:4px 0 0; padding-left:20px; }
+
+#modal{ position:fixed; inset:0; background:rgba(8,12,22,.55); display:flex; align-items:center; justify-content:center;
+  padding:16px; z-index:10; }
+#modal .box{ background:var(--surface); color:var(--ink); border-radius:16px; padding:18px; max-width:400px; width:100%; display:flex; flex-direction:column; gap:12px; }
+#modal .btns{ display:flex; gap:8px; justify-content:flex-end; }
+#copyArea{ width:100%; min-height:140px; font-family:var(--f-num); font-size:12px; background:var(--input); color:var(--ink); border:1px solid var(--line); border-radius:10px; padding:8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>MEA電解タイマー</h1>
+    <span class="pill" id="syncPill">準備中…</span>
+  </header>
+
+  <div class="tabs" role="tablist">
+    <button role="tab" id="tabTimer" aria-selected="true">タイマー</button>
+    <button role="tab" id="tabHist" aria-selected="false">記録一覧</button>
+    <button role="tab" id="tabSet" aria-selected="false">設定</button>
+  </div>
+
+  <!-- ===== タイマー ===== -->
+  <section id="timerView" class="wrap" style="max-width:none">
+    <details>
+      <summary>使い方</summary>
+      <div class="help"><ol>
+        <li>サンプル名と目的電流を入れ、ポテスタのプログラム開始と同時に「スタート」</li>
+        <li>目的電流に達したら「定電流到達を記録」（以降の予定はここが基準）</li>
+        <li>時間になると音と赤点滅で知らせます。操作したら「実施を記録」。ガス流量・秤量は値を入れてから押す</li>
+        <li>コック切り替え・アノライト採取・ガスバック取り付けは、記録した10分後に「（終）」を知らせます</li>
+        <li>全部終わったら「記録一覧」から CSV を保存し、測定CSVと同じフォルダへ</li>
+      </ol>画面はつけたままにしてください（ロックすると音が鳴りません）。</div>
+    </details>
+    <div class="setup">
+      <label class="field">サンプル名（測定フォルダ名など）
+        <input type="text" id="runName" placeholder="例: 261016_MEA_Cu200_300mA">
+      </label>
+      <label class="field">目的電流 (mA)
+        <input type="number" id="targetMa" inputmode="decimal" value="1875">
+      </label>
+    </div>
+    <div class="sub">掃引 -<span id="rate">1.5</span> mA/s ・ 300 mA/cm² × 6.25 cm² = 1875 mA</div>
+
+    <div id="statusbar">
+      <div id="bigclock" class="num">--:--</div>
+      <div id="cc" class="num"></div>
+      <div id="nextline" class="sub">ポテスタのプログラム開始と同時に「スタート」</div>
+    </div>
+
+    <button class="big" id="startBtn">▶ スタート（タイマー開始）</button>
+    <button class="big cc" id="ccBtn" hidden>● 定電流到達を記録</button>
+
+    <div id="cards"></div>
+
+    <div class="row">
+      <input type="text" id="noteInput" placeholder="メモ（予定外の操作・気づき）">
+      <button class="ghost" id="noteBtn">メモ追加</button>
+    </div>
+
+    <div id="result" hidden></div>
+
+    <div class="footer">
+      <button class="ghost small" id="csvBtn">CSVを保存</button>
+      <button class="ghost small" id="notionBtn">Notion用コピー</button>
+      <button class="ghost small" id="closeBtn">この記録を閉じる</button>
+    </div>
+
+    <details>
+      <summary>記録ログ（<span id="logCount">0</span>件）</summary>
+      <div class="tablewrap">
+        <table id="log"><thead><tr><th>壁時計</th><th>定電流後</th><th>操作</th><th>値</th><th>状態</th></tr></thead><tbody></tbody></table>
+      </div>
+    </details>
+  </section>
+
+  <!-- ===== 記録一覧 ===== -->
+  <section id="histView" class="wrap" style="max-width:none" hidden>
+    <div class="help">
+      表示中: <b id="histWhere">この端末の記録</b>
+      <ol>
+        <li>該当の記録で「CSVを保存」→ 測定CSVと同じフォルダに置く（ファイル名は <code>oplog_…csv</code> のまま）</li>
+        <li><code>解析.bat</code> や <code>read_potential_MEA</code> が本測定窓（コック切り替え 始→終）を自動で使います</li>
+      </ol>
+    </div>
+    <button class="ghost small" id="reloadBtn">一覧を更新</button>
+    <div id="histList"><div class="empty">まだ記録はありません。「タイマー」でスタートすると、ここに自動で保存されます。</div></div>
+  </section>
+
+  <!-- ===== 設定 ===== -->
+  <section id="setView" class="wrap" style="max-width:none" hidden>
+    <div class="panel">
+      <h2>クラウド保存（Google スプレッドシート）</h2>
+      <div class="help">設定すると、記録が研究室のスプレッドシートにも保存され、どの端末の「記録一覧」からも見られます。未設定でも、この端末への保存で動きます。<br>管理者から「設定リンク」をもらった場合は、そのリンクを開くだけで設定されます。</div>
+      <label class="field">ウェブアプリ URL（https://script.google.com/macros/s/…/exec）
+        <input type="url" id="cfgUrl" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off">
+      </label>
+      <label class="field">合言葉
+        <input type="password" id="cfgToken" autocomplete="off">
+      </label>
+      <label class="field">実験者名（記録に残ります）
+        <input type="text" id="cfgOperator" placeholder="例: 桑野">
+      </label>
+      <div class="row">
+        <button id="cfgSave">保存して接続テスト</button>
+        <button class="ghost" id="cfgClear">クラウド保存をやめる</button>
+      </div>
+      <div class="sub" id="cfgStatus"></div>
+    </div>
+    <div class="panel">
+      <h2>他の人に配る</h2>
+      <div class="help">今の URL と合言葉を入れた「設定リンク」を作ります。研究室のメンバーにだけ渡してください（リンクを知っている人は記録を書き込めます）。</div>
+      <button class="ghost" id="cfgLink">設定リンクをコピー</button>
+    </div>
+  </section>
+</div>
+
+<div id="modal" hidden>
+  <div class="box" role="dialog" aria-modal="true">
+    <div id="modalText"></div>
+    <textarea id="copyArea" hidden readonly></textarea>
+    <div class="btns">
+      <button class="ghost" id="modalCancel">キャンセル</button>
+      <button id="modalOk">OK</button>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+// ---- 設定（プロトコル）: legacy/schedule.example.json と同じ内容 ----
+const CONFIG = {
+  sweepRate: 1.5,
+  operations: [
+    {name:"出口ガス流量(前)",  offsetCc:"3:00", kind:"measure", unit:"ccm"},
+    {name:"コック切り替え",     offsetCc:"5:00", kind:"paired",  interval:"10:00"},
+    {name:"アノライト採取",     offsetCc:"5:20", kind:"paired",  interval:"10:00"},
+    {name:"ガスバック取り付け", offsetCc:"5:40", kind:"paired",  interval:"10:00"},
+    {name:"出口ガス流量(後)",  afterPairs:true, kind:"measure", unit:"ccm"},
+    {name:"カソライト回収",     afterPairs:true, kind:"mark"},
+    {name:"アノライト秤量",     afterPairs:true, kind:"measure", unit:"g"},
+  ]
+};
+const WIN_OP = "コック切り替え"; // 本測定窓を決める操作
+const $ = id => document.getElementById(id);
+
+// ---- 状態 ----
+function blank(){ return { id:null, name:"", operator:"", t0:null, tcc:null, targetMa:1875, records:[], events:[], announced:[], seq:0, finished:false }; }
+let S = blank();
+let cardsDirty = true;
+
+// ---- ユーティリティ ----
+const pad=n=>String(n).padStart(2,"0");
+function parseMMSS(v){ if(v==null)return null; const p=String(v).split(":").map(Number);
+  if(p.length===1)return p[0]; if(p.length===2)return p[0]*60+p[1]; return p[0]*3600+p[1]*60+p[2]; }
+function fmt(sec){ const s=Math.round(sec); const sign=s<0?"-":""; const a=Math.abs(s);
+  return sign+pad(Math.floor(a/60))+":"+pad(a%60); }
+function clockOf(ms){ const d=new Date(ms); return pad(d.getHours())+":"+pad(d.getMinutes())+":"+pad(d.getSeconds()); }
+function dateOf(ms){ const d=new Date(ms); return d.getFullYear()+"/"+pad(d.getMonth()+1)+"/"+pad(d.getDate())+" "+pad(d.getHours())+":"+pad(d.getMinutes()); }
+function stampOf(ms){ const d=new Date(ms); return String(d.getFullYear()).slice(2)+pad(d.getMonth()+1)+pad(d.getDate())+"_"+pad(d.getHours())+pad(d.getMinutes()); }
+const esc=v=>String(v==null?"":v).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+function lsGet(k,def){ try{ const v=localStorage.getItem(k); return v==null?def:JSON.parse(v); }catch(e){ return def; } }
+function lsSet(k,v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+
+// ---- 音・バイブ・画面常時点灯 ----
+let actx=null;
+function initAudio(){ try{ if(!actx) actx=new (window.AudioContext||window.webkitAudioContext)();
+  if(actx.state==="suspended") actx.resume(); }catch(e){} }
+document.addEventListener("pointerdown", initAudio);
+function beep(times=2){ initAudio(); if(!actx)return; let t=actx.currentTime;
+  for(let i=0;i<times;i++){ const o=actx.createOscillator(),g=actx.createGain();
+    o.frequency.value=880; o.connect(g); g.connect(actx.destination);
+    g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.35,t+0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+0.28); o.start(t); o.stop(t+0.3); t+=0.4; } }
+function buzz(){ try{ if(navigator.vibrate) navigator.vibrate([300,120,300]); }catch(e){} }
+async function keepAwake(){ try{ if("wakeLock" in navigator) await navigator.wakeLock.request("screen"); }catch(e){} }
+document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible" && S.t0 && !S.finished) keepAwake(); });
+
+// ---- 窓・CSV・Notion ----
+function windowOf(records){ let start=null,end=null;
+  for(const r of records||[]){ const n=(r.name||"").trim();
+    if(n===WIN_OP && !start) start=r.clock; else if(n===WIN_OP+"（終）" && !end) end=r.clock; }
+  return {start,end}; }
+const COLS=["操作","種別","状態","壁時計","経過(開始から)","経過(定電流後)","予定(定電流後)","測定値","_prog_s","_cc_s"];
+function csvOf(records){
+  const q=v=>{ v=(v==null?"":String(v)); return /[",\r\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; };
+  const lines=[COLS.join(",")];
+  for(const r of records) lines.push([r.name,r.kind,r.status,r.clock,r.progT,r.ccT,r.planned,r.value,r._prog_s,r._cc_s].map(q).join(","));
+  return "﻿"+lines.join("\r\n")+"\r\n";
+}
+function notionOf(run){
+  let t=(run.name?`**${run.name}**  (${dateOf(run.t0)}${run.operator?" / "+run.operator:""})\n\n`:"")+"| 操作 | 壁時計 | 定電流後 | 値 | 状態 |\n|---|---|---|---|---|\n";
+  for(const r of run.records) t+=`| ${r.name} | ${r.clock} | ${r.ccT||""} | ${r.value||""} | ${r.status} |\n`;
+  return t;
+}
+function csvName(run){ const nm=(run.name||"").replace(/[\\/:*?"<>|\s]+/g,"_").replace(/^_+|_+$/g,"");
+  return "oplog_"+(nm?nm+"_":"")+stampOf(run.t0)+".csv"; }
+
+// ---- 保存: この端末（常に）＋ スプレッドシート（設定時） ----
+const KEY="mea_timer_state", RUNS_KEY="mea_timer_runs", CFG_KEY="mea_timer_cloud", LOCAL_MAX=100;
+let cfg = lsGet(CFG_KEY, {url:"", token:"", operator:""});
+const cloudOn = ()=>!!(cfg.url && cfg.token);
+let syncState="idle", lastSync=null, writing=false, dirty=false, retryTimer=null;
+
+function bodyOf(){ return { id:S.id, name:S.name, operator:S.operator, t0:S.t0, tcc:S.tcc, targetMa:S.targetMa, records:S.records, events:S.events,
+  announced:S.announced, seq:S.seq, finished:S.finished, window:windowOf(S.records), updatedAt:Date.now() }; }
+function localRuns(){ return lsGet(RUNS_KEY, {}) || {}; }
+function saveLocal(){
+  lsSet(KEY, S);
+  if(!S.id) return;
+  const m=localRuns(); m[S.id]=bodyOf();
+  const ids=Object.keys(m).sort((a,b)=>(m[b].t0||0)-(m[a].t0||0));
+  for(const id of ids.slice(LOCAL_MAX)) delete m[id];
+  lsSet(RUNS_KEY, m);
+}
+function save(){ saveLocal(); if(S.id && cloudOn()){ dirty=true; flush(); } setPill(); }
+
+async function api(action, extra){
+  const res = await fetch(cfg.url, { method:"POST", body: JSON.stringify({ action, token:cfg.token, ...extra }) }); // text/plain → プリフライトなし
+  const j = await res.json();
+  if(!j.ok) throw new Error(j.error||"error");
+  return j;
+}
+async function flush(){
+  if(!cloudOn() || !S.id || writing || !dirty) return;
+  writing=true; dirty=false; let failed=false;
+  try{ await api("save", { run: bodyOf() }); lastSync=Date.now(); syncState="ok"; }
+  catch(e){ failed=true; dirty=true; syncState = (e.message==="unauthorized") ? "auth" : "err";
+    if(syncState==="err"){ clearTimeout(retryTimer); retryTimer=setTimeout(flush, 5000+Math.random()*5000); } }
+  finally{ writing=false; setPill(); if(!failed && dirty) flush(); }
+}
+window.addEventListener("online", ()=>flush());
+function setPill(){
+  const p=$("syncPill"); p.className="pill";
+  if(!cloudOn()){ p.textContent="この端末に保存"; return; }
+  if(syncState==="auth"){ p.className="pill warn"; p.textContent="合言葉が違います（設定を確認）"; return; }
+  if(!S.id){ p.className = syncState==="err"?"pill warn":"pill ok"; p.textContent = syncState==="err"?"スプレッドシートに接続できません":"スプレッドシート保存オン"; return; }
+  if(dirty||writing){ p.className = syncState==="err"?"pill warn":"pill"; p.textContent = syncState==="err"?"未送信（再送します）":"送信中…"; return; }
+  p.className="pill ok"; p.textContent="スプレッドシート保存済み "+(lastSync?clockOf(lastSync):"");
+}
+
+// ---- 記録 ----
+function addRecord(name,kind,ts,value="",planned="",status="done"){
+  const progS=(ts-S.t0)/1000, ccS=S.tcc?(ts-S.tcc)/1000:"";
+  S.records.push({ name,kind,status, clock:clockOf(ts), progT:fmt(progS), ccT:(ccS===""?"":fmt(ccS)), planned, value,
+    _prog_s:Math.round(progS*10)/10, _cc_s:(ccS===""?"":Math.round(ccS*10)/10) });
+}
+function buildEvents(){
+  S.events=[];
+  for(const op of CONFIG.operations){
+    const ev={ id:++S.seq, name:op.name, kind:op.kind, unit:op.unit||"", intervalS:op.interval?parseMMSS(op.interval):null,
+      afterPairs:!!op.afterPairs, due:null, done:false, isEnd:false, planned:"", value:"" };
+    if(op.offsetCc!=null){ ev.due=S.tcc+parseMMSS(op.offsetCc)*1000; ev.planned="cc+"+fmt(parseMMSS(op.offsetCc)); }
+    S.events.push(ev);
+  }
+  cardsDirty=true;
+}
+function nextEvent(){ const c=S.events.filter(e=>!e.done && e.due!=null); if(!c.length)return null; return c.reduce((a,b)=>a.due<b.due?a:b); }
+function releaseAfterPairs(){
+  const starts=S.events.filter(e=>e.kind==="paired"), ends=S.events.filter(e=>e.isEnd);
+  if(starts.length && starts.every(e=>e.done) && ends.length && ends.every(e=>e.done)){
+    let changed=false;
+    for(const e of S.events) if(e.afterPairs && e.due==null){ e.due=Date.now(); changed=true; }
+    if(changed){ cardsDirty=true; save(); }
+  }
+}
+function recordEvent(ev,status){
+  const now=Date.now();
+  const val=(status==="done" && ev.kind==="measure")?String(ev.value||"").trim():"";
+  addRecord(ev.name,ev.kind,now,val,ev.planned,status);
+  ev.done=true;
+  if(status==="done" && ev.kind==="paired" && ev.intervalS){
+    S.events.push({ id:++S.seq, name:ev.name+"（終）", kind:"paired_end", unit:"", intervalS:null, afterPairs:false,
+      due:now+ev.intervalS*1000, done:false, isEnd:true, planned:ev.name+"始+"+fmt(ev.intervalS), value:"" });
+  }
+  cardsDirty=true; checkFinish(); save(); renderLog();
+}
+
+// ---- 描画 ----
+function renderCards(){
+  const el=$("cards"); el.innerHTML="";
+  const evs=[...S.events].sort((a,b)=>{ if(a.done!==b.done) return a.done?1:-1;
+    return (a.due==null?Infinity:a.due)-(b.due==null?Infinity:b.due); });
+  for(const ev of evs){
+    const c=document.createElement("div"); c.className="card"; c.dataset.id=ev.id;
+    if(ev.done) c.classList.add("done"); else if(ev.due==null) c.classList.add("locked");
+    const meta = ev.due!=null ? ("予定 "+ev.planned) : (ev.afterPairs?"本測定終了後":"待機");
+    c.innerHTML=`<div class="chead"><span class="cname">${esc(ev.name)}</span><span class="ctimer num" data-timer="${ev.id}"></span></div>
+      <div class="cmeta">${esc(meta)}${ev.done?" ・ 記録済み":""}</div>`;
+    if(!ev.done && ev.due!=null){
+      const act=document.createElement("div"); act.className="actions";
+      if(ev.kind==="measure"){
+        const inp=document.createElement("input"); inp.type="number"; inp.inputMode="decimal"; inp.id="val_"+ev.id;
+        inp.value=ev.value||""; inp.placeholder="値";
+        inp.oninput=()=>{ ev.value=inp.value; saveLocal(); };
+        const u=document.createElement("span"); u.className="unit"; u.textContent=ev.unit;
+        act.append(inp,u);
+      }
+      const btn=document.createElement("button"); btn.textContent="実施を記録"; btn.onclick=()=>recordEvent(ev,"done");
+      const sk=document.createElement("button"); sk.className="ghost"; sk.textContent="スキップ"; sk.onclick=()=>recordEvent(ev,"skip");
+      act.append(btn,sk); c.appendChild(act);
+    }
+    el.appendChild(c);
+  }
+  cardsDirty=false;
+}
+function renderLog(){
+  const tb=document.querySelector("#log tbody"); tb.innerHTML="";
+  for(const r of S.records){ const tr=document.createElement("tr");
+    tr.innerHTML=`<td class="num">${esc(r.clock)}</td><td class="num">${esc(r.ccT||"")}</td><td>${esc(r.name)}</td><td class="num">${esc(r.value||"")}</td><td>${esc(r.status)}</td>`;
+    tb.appendChild(tr); }
+  $("logCount").textContent=S.records.length;
+}
+function syncButtons(){
+  $("startBtn").hidden = !!(S.t0 && !S.finished);
+  $("ccBtn").hidden = !(S.t0 && !S.tcc);
+  if(S.t0) $("runName").value = S.name||"";
+  $("targetMa").value = S.targetMa||1875;
+}
+function tick(){
+  const now=Date.now(), bc=$("bigclock"), ccl=$("cc"), nl=$("nextline");
+  if(S.t0){
+    bc.textContent="開始 +"+fmt((now-S.t0)/1000);
+    if(S.tcc){
+      ccl.textContent="定電流後 +"+fmt((now-S.tcc)/1000);
+      releaseAfterPairs();
+      for(const e of S.events){
+        if(!e.done && e.due!=null && now>=e.due && !S.announced.includes(e.id)){ S.announced.push(e.id); beep(2); buzz(); save(); }
+      }
+      const nx=nextEvent();
+      if(nx){ const rem=(nx.due-now)/1000;
+        nl.innerHTML = rem>0 ? `次: <b>${esc(nx.name)}</b> まで <span class="num">${fmt(rem)}</span>`
+                             : `<b class="dueText">▶ ${esc(nx.name)} の時間です（記録してください）</b>`;
+      } else nl.textContent = S.finished ? "すべての操作が完了しました" : "保留の操作なし";
+    } else {
+      ccl.textContent="";
+      const est=S.t0+30000+(S.targetMa/CONFIG.sweepRate)*1000;
+      nl.innerHTML=`定電流到達まで目安 約 <span class="num">${fmt((est-now)/1000)}</span>（到達したら下のボタン）`;
+    }
+  } else { bc.textContent="--:--"; ccl.textContent=""; }
+  if(cardsDirty) renderCards();
+  for(const e of S.events){
+    const el=document.querySelector(`[data-timer="${e.id}"]`); if(!el) continue;
+    const card=el.closest(".card");
+    if(e.done) el.textContent="✓";
+    else if(e.due==null) el.textContent="—";
+    else { const rem=(e.due-now)/1000; el.textContent=fmt(rem); card.classList.toggle("due", rem<=0); }
+  }
+}
+function checkFinish(){
+  const box=$("result");
+  if(!(S.tcc && S.events.length && S.events.every(e=>e.done))){ box.hidden=true; return; }
+  S.finished=true;
+  const w=windowOf(S.records);
+  let msg="すべての操作が完了しました。「記録一覧」から CSV を保存できます。";
+  if(w.start && w.end) msg+=`<br>本測定窓（${esc(WIN_OP)}）: <span class="num">${esc(w.start)} 〜 ${esc(w.end)}</span>`;
+  box.innerHTML=msg; box.hidden=false; syncButtons();
+}
+
+// ---- モーダル（confirm の代わり） ----
+function ask(html, okLabel="OK", copyText=null){
+  return new Promise(res=>{
+    $("modalText").innerHTML=html; $("modalOk").textContent=okLabel;
+    const ta=$("copyArea"); ta.hidden = copyText==null; if(copyText!=null){ ta.value=copyText; }
+    $("modalCancel").hidden = copyText!=null;
+    $("modal").hidden=false;
+    if(copyText!=null){ ta.focus(); ta.select(); }
+    const done=v=>{ $("modal").hidden=true; $("modalOk").onclick=$("modalCancel").onclick=null; res(v); };
+    $("modalOk").onclick=()=>done(true); $("modalCancel").onclick=()=>done(false);
+  });
+}
+function toast(msg){ const p=$("syncPill"); p.className="pill ok"; p.textContent=msg; setTimeout(setPill,1600); }
+async function copy(text,label){
+  try{ await navigator.clipboard.writeText(text); toast(label+"をコピーしました"); }
+  catch(e){ ask("自動コピーできませんでした。下の内容を選択してコピーしてください。","閉じる",text); }
+}
+function saveCsv(run){
+  if(!run.records || !run.records.length){ toast("記録がありません"); return; }
+  const blob=new Blob([csvOf(run.records)],{type:"text/csv"}); const u=URL.createObjectURL(blob);
+  const a=document.createElement("a"); a.href=u; a.download=csvName(run); document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(u),2000);
+}
+
+// ---- ボタン ----
+async function startNew(){
+  if(S.t0 && !S.finished){
+    if(!await ask("進行中の記録があります。新しく開始しますか？<br><span class='sub'>今の記録は記録一覧に残ります。</span>","新しく開始")) return;
+  }
+  const now=Date.now();
+  S={ ...blank(), id:"r"+stampOf(now).replace("_","-")+"-"+Math.random().toString(36).slice(2,6), t0:now,
+      name:$("runName").value.trim(), operator:cfg.operator||"", targetMa:Number($("targetMa").value)||1875 };
+  initAudio(); beep(1); keepAwake(); cardsDirty=true; save(); renderLog(); syncButtons(); checkFinish();
+}
+$("startBtn").onclick=startNew;
+$("ccBtn").onclick=()=>{ if(!S.t0||S.tcc) return; S.tcc=Date.now(); addRecord("定電流到達","mark",S.tcc); buildEvents(); beep(1); save(); renderLog(); syncButtons(); };
+$("noteBtn").onclick=()=>{ const inp=$("noteInput"), v=inp.value.trim(); if(!v||!S.t0) return;
+  addRecord("[メモ] "+v,"note",Date.now()); inp.value=""; save(); renderLog(); };
+$("csvBtn").onclick=()=>saveCsv(S);
+$("notionBtn").onclick=()=>{ if(!S.records.length){ toast("記録がありません"); return; } copy(notionOf(S),"Notion用の表"); };
+$("closeBtn").onclick=async()=>{
+  if(!S.t0) return;
+  if(!await ask("この端末で開いている記録を閉じますか？<br><span class='sub'>記録は記録一覧に残ります。</span>","閉じる")) return;
+  try{ localStorage.removeItem(KEY); }catch(e){}
+  S=blank(); cardsDirty=true; renderLog(); syncButtons(); checkFinish(); setPill();
+  $("nextline").textContent="ポテスタのプログラム開始と同時に「スタート」";
+};
+$("runName").onchange=e=>{ if(S.t0){ S.name=e.target.value.trim(); save(); } };
+$("targetMa").onchange=e=>{ if(S.t0){ S.targetMa=Number(e.target.value)||1875; save(); } };
+
+// ---- タブ ----
+function showTab(t){
+  for(const [k,v] of [["timer","timerView"],["hist","histView"],["set","setView"]]) $(v).hidden = k!==t;
+  $("tabTimer").setAttribute("aria-selected",String(t==="timer"));
+  $("tabHist").setAttribute("aria-selected",String(t==="hist"));
+  $("tabSet").setAttribute("aria-selected",String(t==="set"));
+  if(t==="hist") loadHist();
+}
+$("tabTimer").onclick=()=>showTab("timer"); $("tabHist").onclick=()=>showTab("hist"); $("tabSet").onclick=()=>showTab("set");
+
+// ---- 記録一覧 ----
+let cloudRuns=null, histMsg="";
+async function loadHist(){
+  renderHist();
+  if(!cloudOn()){ cloudRuns=null; histMsg=""; renderHist(); return; }
+  histMsg="スプレッドシートから読み込み中…"; renderHist();
+  try{ const j=await api("list",{}); cloudRuns=j.runs||[]; histMsg=""; }
+  catch(e){ cloudRuns=null; histMsg = e.message==="unauthorized" ? "合言葉が違うため、この端末の記録だけ表示しています。" : "スプレッドシートに接続できないため、この端末の記録だけ表示しています。"; }
+  renderHist();
+}
+$("reloadBtn").onclick=loadHist;
+function mergedRuns(){
+  const m={};
+  for(const r of Object.values(localRuns())) m[r.id]={...r, _local:true};
+  for(const r of cloudRuns||[]){ const cur=m[r.id];
+    m[r.id] = (!cur || (r.updatedAt||0)>=(cur.updatedAt||0)) ? {...r, _cloud:true, _local:!!cur} : {...cur, _cloud:true}; }
+  return Object.values(m).sort((a,b)=>(b.t0||0)-(a.t0||0));
+}
+function renderHist(){
+  const el=$("histList");
+  $("histWhere").textContent = cloudRuns ? "スプレッドシートの全記録＋この端末の記録" : "この端末の記録";
+  const list=mergedRuns();
+  el.innerHTML = histMsg ? `<div class="sub">${esc(histMsg)}</div>` : "";
+  if(!list.length){ el.insertAdjacentHTML("beforeend",`<div class="empty">まだ記録はありません。「タイマー」でスタートすると、ここに自動で保存されます。</div>`); return; }
+  for(const r of list){
+    const w=r.window||windowOf(r.records), n=(r.records||[]).length;
+    const active = r.id===S.id;
+    const where = r._cloud ? (r._local?"スプレッドシート・この端末":"スプレッドシート") : "この端末のみ";
+    const d=document.createElement("div"); d.className="run";
+    d.innerHTML=`<div class="rhead"><span class="rname">${esc(r.name||"（サンプル名なし）")}</span>
+        <span class="pill ${r.finished?"ok":""}">${r.finished?"完了":(active?"この端末で進行中":"未完了")}</span></div>
+      <dl><dt>開始</dt><dd class="num">${r.t0?esc(dateOf(r.t0)):"—"}</dd>
+        ${r.operator?`<dt>実験者</dt><dd>${esc(r.operator)}</dd>`:""}
+        <dt>本測定窓</dt><dd class="num">${w.start?esc(w.start):"—"} 〜 ${w.end?esc(w.end):"—"}</dd>
+        <dt>記録</dt><dd>${n} 件 ・ ${esc(r.targetMa||"")} mA ・ ${esc(where)}</dd></dl>
+      <div class="actions"></div>`;
+    const act=d.querySelector(".actions");
+    const mk=(label,cls,fn)=>{ const b=document.createElement("button"); b.className="small "+cls; b.textContent=label; b.onclick=fn; act.appendChild(b); };
+    mk("CSVを保存","",()=>saveCsv(r));
+    mk("Notion用コピー","ghost",()=>copy(notionOf(r),"Notion用の表"));
+    if(!active) mk("タイマーで開く","ghost",()=>openRun(r));
+    mk("削除","danger",()=>deleteRun(r));
+    el.appendChild(d);
+  }
+}
+async function openRun(r){
+  if(S.t0 && !S.finished && !await ask("この端末で進行中の記録を閉じて、選んだ記録を開きますか？<br><span class='sub'>同じ記録を2台で同時に操作しないでください。</span>","開く")) return;
+  S={ ...blank(), id:r.id, name:r.name||"", operator:r.operator||"", t0:r.t0, tcc:r.tcc, targetMa:r.targetMa||1875,
+      records:(r.records||[]).map(x=>({...x})), events:(r.events||[]).map(x=>({...x})),
+      announced:[...(r.announced||[])], seq:r.seq||0, finished:!!r.finished };
+  lsSet(KEY,S); cardsDirty=true; renderLog(); syncButtons(); checkFinish(); setPill(); showTab("timer");
+}
+async function deleteRun(r){
+  const scope = r._cloud ? "スプレッドシートとこの端末から" : "この端末から";
+  if(!await ask(`「${esc(r.name||"（サンプル名なし）")}」（${r.t0?esc(dateOf(r.t0)):""}）を${scope}削除しますか？<br><span class='sub'>元に戻せません。</span>`,"削除する")) return;
+  try{
+    if(r._cloud) await api("delete",{id:r.id});
+    const m=localRuns(); delete m[r.id]; lsSet(RUNS_KEY,m);
+    if(r.id===S.id){ S.id=null; lsSet(KEY,S); }
+    if(cloudRuns) cloudRuns=cloudRuns.filter(x=>x.id!==r.id);
+    toast("削除しました"); renderHist();
+  }catch(e){ ask("削除できませんでした（"+esc(e.message||"error")+"）。","閉じる"); }
+}
+
+// ---- 設定 ----
+function fillCfg(){ $("cfgUrl").value=cfg.url||""; $("cfgToken").value=cfg.token||""; $("cfgOperator").value=cfg.operator||""; }
+$("cfgSave").onclick=async()=>{
+  const url=$("cfgUrl").value.trim(), token=$("cfgToken").value.trim(), operator=$("cfgOperator").value.trim();
+  if(url && !/^https:\/\/script\.google(usercontent)?\.com\//.test(url)){ $("cfgStatus").textContent="URL は https://script.google.com/macros/s/…/exec の形で入れてください。"; return; }
+  cfg={url,token,operator}; lsSet(CFG_KEY,cfg);
+  if(S.t0 && !S.operator && operator){ S.operator=operator; }
+  if(!cloudOn()){ $("cfgStatus").textContent="保存しました（クラウド保存なし）。"; syncState="idle"; setPill(); return; }
+  $("cfgStatus").textContent="接続テスト中…";
+  try{ await api("ping",{}); syncState="ok"; $("cfgStatus").textContent="接続できました。これから記録はスプレッドシートにも保存されます。";
+    if(S.id){ dirty=true; flush(); } }
+  catch(e){ syncState = e.message==="unauthorized"?"auth":"err";
+    $("cfgStatus").textContent = e.message==="unauthorized" ? "合言葉が違います。" : "接続できませんでした。URL とデプロイ設定（アクセス: 全員）を確認してください。"; }
+  setPill();
+};
+$("cfgClear").onclick=()=>{ cfg={url:"",token:"",operator:cfg.operator||""}; lsSet(CFG_KEY,cfg); fillCfg(); syncState="idle"; dirty=false; setPill();
+  $("cfgStatus").textContent="クラウド保存をやめました。この端末にだけ保存します。"; };
+$("cfgLink").onclick=()=>{
+  if(!cloudOn()){ toast("先に URL と合言葉を保存してください"); return; }
+  const data=btoa(unescape(encodeURIComponent(JSON.stringify({url:cfg.url, token:cfg.token}))));
+  copy(location.origin+location.pathname+"#setup="+data, "設定リンク");
+};
+function applySetupLink(){
+  const m=location.hash.match(/^#setup=(.+)$/); if(!m) return;
+  try{ const d=JSON.parse(decodeURIComponent(escape(atob(m[1]))));
+    if(d.url && d.token){ cfg={url:d.url, token:d.token, operator:cfg.operator||""}; lsSet(CFG_KEY,cfg);
+      setTimeout(()=>{ showTab("set"); $("cfgStatus").textContent="設定リンクを読み込みました。実験者名を入れて「保存して接続テスト」を押してください。"; },0); }
+  }catch(e){}
+  history.replaceState(null,"",location.pathname+location.search);
+}
+
+// ---- 起動 ----
+applySetupLink(); fillCfg();
+S={...blank(), ...lsGet(KEY, {})};
+cardsDirty=true; renderLog(); syncButtons(); checkFinish();
+if(S.t0 && !S.finished) keepAwake();
+setInterval(tick,250); tick(); setPill();
+if(S.id && cloudOn()){ dirty=true; flush(); }
+</script>
+</body>
+</html>
